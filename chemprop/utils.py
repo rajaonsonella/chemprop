@@ -469,7 +469,7 @@ def save_smiles_splits(data_path: str,
     :param smiles_columns: The name of the column containing SMILES. By default, uses the first column.
     """
     makedirs(save_dir)
-    
+
     if not isinstance(smiles_columns, list):
         smiles_columns = preprocess_smiles_columns(path=data_path, smiles_columns=smiles_columns)
 
@@ -565,7 +565,7 @@ def update_prediction_args(predict_args: PredictArgs,
         for key, value in vars(default_train_args).items():
             if not hasattr(predict_args,key):
                 setattr(predict_args,key,override_defaults.get(key,value))
-    
+
     # Same number of molecules must be used in training as in making predictions
     if train_args.number_of_molecules != predict_args.number_of_molecules:
         raise ValueError('A different number of molecules was used in training '

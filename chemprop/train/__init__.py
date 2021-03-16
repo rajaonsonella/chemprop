@@ -1,4 +1,4 @@
-from .cross_validate import chemprop_train, cross_validate, TRAIN_LOGGER_NAME
+from .cross_validate import chemprop_train, cross_validate, cross_validate_dc, TRAIN_LOGGER_NAME
 from .evaluate import evaluate, evaluate_predictions
 from .make_predictions import chemprop_predict, make_predictions
 from .molecule_fingerprint import chemprop_fingerprint

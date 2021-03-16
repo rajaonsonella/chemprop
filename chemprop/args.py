@@ -2,11 +2,13 @@ import json
 import os
 from tempfile import TemporaryDirectory
 import pickle
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, NamedTuple, Dict, Any
 from typing_extensions import Literal
 
 import torch
 from tap import Tap  # pip install typed-argument-parser (https://github.com/swansonk14/typed-argument-parser)
+from tap.utils import define_python_object_encoder
+from json import JSONEncoder
 
 import chemprop.data.utils
 from chemprop.data import set_cache_mol
@@ -59,7 +61,7 @@ def get_checkpoint_paths(checkpoint_path: Optional[str] = None,
     return None
 
 
-class CommonArgs(Tap):
+class CommonArgs():
     """:class:`CommonArgs` contains arguments that are used in both :class:`TrainArgs` and :class:`PredictArgs`."""
 
     smiles_columns: List[str] = None
@@ -200,12 +202,61 @@ class CommonArgs(Tap):
 
         set_cache_mol(not self.no_cache_mol)
 
+    def as_dict(self):
+        dict = {}
+        list_args = [attr for attr in dir(self) if not callable(getattr(self, attr)) and not attr.startswith("_")]
+        for key in list_args:
+            val = getattr(self, key)
+            dict[key] = val
+        return dict
+
+    def from_dict(self, args_dict: Dict[str, Any], skip_unsettable: bool = False):
+        """Loads arguments from a dictionary, ensuring all required arguments are set.
+        :param args_dict: A dictionary from argument names to the values of the arguments.
+        :param skip_unsettable: When True, skips attributes that cannot be set in the Tap object,
+                                e.g. properties without setters.
+        :return: Returns self.
+        """
+        # All of the required arguments must be provided or already set
+        # required_args = {a.dest for a in self._actions if a.required}
+        # unprovided_required_args = required_args - args_dict.keys()
+        # missing_required_args = [arg for arg in unprovided_required_args if not hasattr(self, arg)]
+        #
+        # if len(missing_required_args) > 0:
+        #     raise ValueError(f'Input dictionary "{args_dict}" does not include '
+        #                      f'all unset required arguments: "{missing_required_args}".')
+
+        # Load all arguments
+        for key, value in args_dict.items():
+            try:
+                setattr(self, key, value)
+            except AttributeError:
+                if not skip_unsettable:
+                    raise AttributeError(f'Cannot set attribute "{key}" to "{value}". '
+                                         f'To skip arguments that cannot be set \n'
+                                         f'\t"skip_unsettable = True"')
+
+        return self
+
+    def save(self, path: str, skip_unpicklable: bool = False) -> None:
+        """
+        CONTAINS NO REPRODUCIBILITY INFO COMPARED TO Tap
+        Saves the arguments information in JSON format, pickling what can't be encoded.
+        :param path: Path to the JSON file where the arguments will be saved.
+        :param skip_unpicklable: If True, does not save attributes whose values cannot be pickled.
+        """
+        with open(path, 'w') as f:
+            args = self.as_dict()
+            json.dump(args, f, indent=4, sort_keys=True, cls=define_python_object_encoder(skip_unpicklable))
 
 class TrainArgs(CommonArgs):
     """:class:`TrainArgs` includes :class:`CommonArgs` along with additional arguments used for training a Chemprop model."""
 
     # General arguments
-    data_path: str
+    smiles_array: List[str] = None
+    targets_array: List[str] = None
+
+    data_path: str = None
     """Path to data CSV file."""
     target_columns: List[str] = None
     """
@@ -441,11 +492,11 @@ class TrainArgs(CommonArgs):
         global temp_dir  # Prevents the temporary directory from being deleted upon function return
 
         # Process SMILES columns
-        self.smiles_columns = chemprop.data.utils.preprocess_smiles_columns(
-            path=self.data_path,
-            smiles_columns=self.smiles_columns,
-            number_of_molecules=self.number_of_molecules,
-        )
+        # self.smiles_columns = chemprop.data.utils.preprocess_smiles_columns(
+        #     path=self.data_path,
+        #     smiles_columns=self.smiles_columns,
+        #     number_of_molecules=self.number_of_molecules,
+        # )
 
         # Load config file
         if self.config_path is not None:
@@ -573,11 +624,11 @@ class PredictArgs(CommonArgs):
     def process_args(self) -> None:
         super(PredictArgs, self).process_args()
 
-        self.smiles_columns = chemprop.data.utils.preprocess_smiles_columns(
-            path=self.test_path,
-            smiles_columns=self.smiles_columns,
-            number_of_molecules=self.number_of_molecules,
-        )
+        # self.smiles_columns = chemprop.data.utils.preprocess_smiles_columns(
+        #     path=self.test_path,
+        #     smiles_columns=self.smiles_columns,
+        #     number_of_molecules=self.number_of_molecules,
+        # )
 
         if self.checkpoint_paths is None or len(self.checkpoint_paths) == 0:
             raise ValueError('Found no checkpoints. Must specify --checkpoint_path <path> or '
@@ -607,11 +658,11 @@ class InterpretArgs(CommonArgs):
     def process_args(self) -> None:
         super(InterpretArgs, self).process_args()
 
-        self.smiles_columns = chemprop.data.utils.preprocess_smiles_columns(
-            path=self.data_path,
-            smiles_columns=self.smiles_columns,
-            number_of_molecules=self.number_of_molecules,
-        )
+        # self.smiles_columns = chemprop.data.utils.preprocess_smiles_columns(
+        #     path=self.data_path,
+        #     smiles_columns=self.smiles_columns,
+        #     number_of_molecules=self.number_of_molecules,
+        # )
 
 
         if self.features_path is not None:
@@ -674,11 +725,11 @@ class SklearnPredictArgs(Tap):
 
     def process_args(self) -> None:
 
-        self.smiles_columns = chemprop.data.utils.preprocess_smiles_columns(
-            path=self.test_path,
-            smiles_columns=self.smiles_columns,
-            number_of_molecules=self.number_of_molecules,
-        )
+        # self.smiles_columns = chemprop.data.utils.preprocess_smiles_columns(
+        #     path=self.test_path,
+        #     smiles_columns=self.smiles_columns,
+        #     number_of_molecules=self.number_of_molecules,
+        # )
 
         # Load checkpoint paths
         self.checkpoint_paths = get_checkpoint_paths(

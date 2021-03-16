@@ -14,6 +14,7 @@ from .utils import (
     filter_invalid_smiles,
     get_class_sizes,
     get_data,
+    get_data_from_deepchem,
     get_data_from_smiles,
     get_header,
     get_smiles,
