@@ -1,8 +1,10 @@
-from .model import MoleculeModel
-from .mpn import MPN, MPNEncoder
+from .model import MoleculeModel, CNP
+from .mpn import MPN, MPNEncoder, MPN_NP
 
 __all__ = [
     'MoleculeModel',
+    'CNP'
     'MPN',
+    'MPN_NP',
     'MPNEncoder'
 ]

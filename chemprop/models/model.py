@@ -5,7 +5,7 @@ from rdkit import Chem
 import torch
 import torch.nn as nn
 
-from .mpn import MPN
+from .mpn import MPN, MPN_NP
 from chemprop.args import TrainArgs
 from chemprop.features import BatchMolGraph
 from chemprop.nn_utils import get_activation_function, initialize_weights
@@ -166,5 +166,106 @@ class MoleculeModel(nn.Module):
             output = output.reshape((output.size(0), -1, self.num_classes))  # batch size x num targets x num classes per target
             if not self.training:
                 output = self.multiclass_softmax(output)  # to get probabilities during evaluation, but not during training as we're using CrossEntropyLoss
+
+        return output
+
+class CNP(nn.Module):
+    """A :class:`CNP` is a model which contains a CNP architecture that uses message passing network
+    as an encoder and feed-forward layers as a decoder."""
+    def __init__(self, args: TrainArgs, featurizer: bool = False):
+        super(CNP, self).__init__()
+
+        self.output_size = 2 #To generalize
+
+        self.create_encoder(args)
+        self.create_encoder_target(args)
+        self.create_decoder(args)
+
+    def create_encoder(self, args: TrainArgs):
+        """
+        Creates the message passing encoder for the context points.
+
+        :param args: A :class:`~chemprop.args.TrainArgs` object containing model arguments.
+        """
+        self.encoder = MPN_NP(args) #Includes aggregator
+
+    def create_encoder_target(self, args:TrainArgs):
+        """
+        Creates the message passing encoder for the target points.
+
+        :param args: A :class:`~chemprop.args.TrainArgs` object containing model arguments.
+        """
+        self.encoder_target = MPN(args)
+
+    def cnct_encoder(self,
+                     enc_output: torch.FloatTensor,
+                     enc_target_output: torch.FloatTensor) -> torch.FloatTensor:
+        """
+        Concatenate the output of `create_encoder` and `create_encoder_target`.
+
+        :param args: A :class:`~chemprop.args.TrainArgs` object containing model arguments.
+        """
+        enc_output = torch.tile(enc_output, (enc_target_output.shape[0],enc_output.shape[0]))
+        self.decoder_input = torch.cat([enc_output, enc_target_output], dim=1)
+        return self.decoder_input
+
+    def create_decoder(self, args: TrainArgs):
+        """
+        Creates the feed-forward layers decoder for the model.
+
+        :param args: A :class:`~chemprop.args.TrainArgs` object containing model arguments.
+        """
+        first_linear_dim = args.hidden_size * args.number_of_molecules + args.hidden_size * args.number_of_molecules + 1 #args.num_tasks  #To generalize
+
+        dropout = nn.Dropout(args.dropout)
+        activation = get_activation_function(args.activation)
+
+        # Create FFN layers
+        if args.ffn_num_layers == 1:
+            ffn = [
+                dropout,
+                nn.Linear(first_linear_dim, self.output_size)
+            ]
+        else:
+            ffn = [
+                dropout,
+                nn.Linear(first_linear_dim, args.ffn_hidden_size)
+            ]
+            for _ in range(args.ffn_num_layers - 2):
+                ffn.extend([
+                    activation,
+                    dropout,
+                    nn.Linear(args.ffn_hidden_size, args.ffn_hidden_size),
+                ])
+            ffn.extend([
+                activation,
+                dropout,
+                nn.Linear(args.ffn_hidden_size, self.output_size),
+            ])
+
+        # Create FFN model
+        self.ffn = nn.Sequential(*ffn)
+
+    def forward(self,
+                batch: Union[List[str], List[Chem.Mol], BatchMolGraph],
+                batch_target: Union[List[str], List[Chem.Mol], BatchMolGraph],
+                batch_y: List[float] = None) -> torch.FloatTensor:
+        """
+        Runs the :class:`CNP` on input.
+
+        :param batch: A list of SMILES, a list of RDKit molecules, or a
+                      :class:`~chemprop.features.featurization.BatchMolGraph` associated to the context points.
+        :param batch_y: A list of SMILES, a list of RDKit molecules, or a
+                      :class:`~chemprop.features.featurization.BatchMolGraph` associated to the target points.
+        :param batch_target: A list of properties associated to the context points.
+        :return: The output of the :class:`CNP`, which is property predictions.
+        """
+        
+        enc_output = self.encoder(batch, batch_y)
+        enc_target_output = self.encoder_target(batch_target)
+
+        inpt = self.cnct_encoder(enc_output, enc_target_output)
+
+        output = self.ffn(inpt)
 
         return output

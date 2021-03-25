@@ -248,3 +248,108 @@ class MPN(nn.Module):
             output = torch.cat([output, features_batch], dim=1)
 
         return output
+
+class MPN_NP(nn.Module):
+    """An :class:`MPN_NP` is a wrapper around :class:`MPNEncoder` which featurizes input as needed
+    and aggregates the vectors into a single general representation."""
+
+    def __init__(self,
+                 args: TrainArgs,
+                 atom_fdim: int = None,
+                 bond_fdim: int = None):
+        """
+        :param args: A :class:`~chemprop.args.TrainArgs` object containing model arguments.
+        :param atom_fdim: Atom feature vector dimension.
+        :param bond_fdim: Bond feature vector dimension.
+        """
+        super(MPN_NP, self).__init__()
+        self.atom_fdim = atom_fdim or get_atom_fdim(overwrite_default_atom=args.overwrite_default_atom_features)
+        self.bond_fdim = bond_fdim or get_bond_fdim(overwrite_default_atom=args.overwrite_default_atom_features,
+                                                    overwrite_default_bond=args.overwrite_default_bond_features,
+                                                    atom_messages=args.atom_messages)
+
+        self.features_only = args.features_only
+        self.use_input_features = args.use_input_features
+        self.device = args.device
+        self.atom_descriptors = args.atom_descriptors
+        self.overwrite_default_atom_features = args.overwrite_default_atom_features
+        self.overwrite_default_bond_features = args.overwrite_default_bond_features
+
+        if self.features_only:
+            return
+
+        if args.mpn_shared:
+            self.encoder = nn.ModuleList([MPNEncoder(args, self.atom_fdim, self.bond_fdim)] * args.number_of_molecules)
+        else:
+            self.encoder = nn.ModuleList([MPNEncoder(args, self.atom_fdim, self.bond_fdim)
+                                          for _ in range(args.number_of_molecules)])
+
+    def forward(self,
+                batch: Union[List[List[str]], List[List[Chem.Mol]], List[BatchMolGraph]],
+                batch_y: List[float],
+                features_batch: List[np.ndarray] = None,
+                atom_descriptors_batch: List[np.ndarray] = None,
+                atom_features_batch: List[np.ndarray] = None,
+                bond_features_batch: List[np.ndarray] = None) -> torch.FloatTensor:
+        """
+        Encodes a batch of molecules.
+
+        :param batch: A list of list of SMILES, a list of list of RDKit molecules, or a
+                      list of :class:`~chemprop.features.featurization.BatchMolGraph`.
+        :param features_batch: A list of numpy arrays containing additional features.
+        :param atom_descriptors_batch: A list of numpy arrays containing additional atom descriptors.
+        :param atom_features_batch: A list of numpy arrays containing additional atom features.
+        :param bond_features_batch: A list of numpy arrays containing additional bond features.
+        :return: A PyTorch tensor of shape :code:`(num_molecules, hidden_size)` containing the encoding of each molecule.
+        """
+        if type(batch[0]) != BatchMolGraph:
+            # TODO: handle atom_descriptors_batch with multiple molecules per input
+            if self.atom_descriptors == 'feature':
+                if len(batch[0]) > 1:
+                    raise NotImplementedError('Atom/bond descriptors are currently only supported with one molecule '
+                                              'per input (i.e., number_of_molecules = 1).')
+
+                batch = [mol2graph(b, atom_features_batch, bond_features_batch,
+                                   overwrite_default_atom_features=self.overwrite_default_atom_features,
+                                   overwrite_default_bond_features=self.overwrite_default_bond_features)
+                         for b in batch]
+            elif bond_features_batch is not None:
+                if len(batch[0]) > 1:
+                    raise NotImplementedError('Atom/bond descriptors are currently only supported with one molecule '
+                                              'per input (i.e., number_of_molecules = 1).')
+
+                batch = [mol2graph(b, None, bond_features_batch,
+                                   overwrite_default_atom_features=self.overwrite_default_atom_features,
+                                   overwrite_default_bond_features=self.overwrite_default_bond_features)
+                         for b in batch]
+            else:
+                batch = [mol2graph(b) for b in batch]
+
+        if self.use_input_features:
+            features_batch = torch.from_numpy(np.stack(features_batch)).float().to(self.device)
+
+            if self.features_only:
+                return features_batch
+
+        if self.atom_descriptors == 'descriptor':
+            if len(batch) > 1:
+                raise NotImplementedError('Atom descriptors are currently only supported with one molecule '
+                                          'per input (i.e., number_of_molecules = 1).')
+
+            encodings = [enc(ba, atom_descriptors_batch) for enc, ba in zip(self.encoder, batch)]
+        else:
+            encodings = [enc(ba) for enc, ba in zip(self.encoder, batch)]
+
+        output = reduce(lambda x, y: torch.cat((x, y), dim=1), encodings)
+
+        if self.use_input_features:
+            if len(features_batch.shape) == 1:
+                features_batch = features_batch.view(1, -1)
+
+            output = torch.cat([output, features_batch], dim=1)
+
+        output = torch.cat([output, torch.FloatTensor(batch_y)], dim=1)
+
+        output = torch.mean(output,0,True)
+
+        return output
