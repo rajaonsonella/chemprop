@@ -141,7 +141,7 @@ def filter_invalid_smiles(data: MoleculeDataset) -> MoleculeDataset:
     :param data: A :class:`~chemprop.data.MoleculeDataset`.
     :return: A :class:`~chemprop.data.MoleculeDataset` with only the valid molecules.
     """
-    return MoleculeDataset([datapoint for datapoint in tqdm(data)
+    return MoleculeDataset([datapoint for datapoint in data
                             if all(s != '' for s in datapoint.smiles) and all(m is not None for m in datapoint.mol)
                             and all(m.GetNumHeavyAtoms() > 0 for m in datapoint.mol)])
 
@@ -315,7 +315,7 @@ def get_data_from_deepchem(smiles_array: List[List[str]],
 
     all_smiles, all_targets, all_rows, all_features = [], [], [], []
 
-    for i in tqdm(range(len(smiles_array))):
+    for i in range(len(smiles_array)):
         smiles = [smiles_array[i]]
         targets = [float(targets_array[i]) if targets_array[i] != '' else None]
 
@@ -334,9 +334,7 @@ def get_data_from_deepchem(smiles_array: List[List[str]],
         MoleculeDatapoint(
             smiles=smiles,
             targets=targets,
-        ) for i, (smiles, targets) in tqdm(enumerate(zip(all_smiles, all_targets)),
-                                           total=len(all_smiles))
-    ])
+        ) for i, (smiles, targets) in enumerate(zip(all_smiles, all_targets))])
 
     # Filter out invalid SMILES
     if skip_invalid_smiles:
@@ -601,7 +599,7 @@ def validate_data(data_path: str) -> Set[str]:
         errors.add('First row is a SMILES string instead of a header.')
 
     # Validate smiles
-    for smile in tqdm(smiles, total=len(smiles)):
+    for smile in smiles:
         mol = Chem.MolFromSmiles(smile)
         if mol is None:
             errors.add('Data includes an invalid SMILES.')
