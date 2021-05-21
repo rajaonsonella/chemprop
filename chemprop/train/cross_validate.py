@@ -187,8 +187,6 @@ def cross_validate_dc(args: TrainArgs,
     data = get_data_from_deepchem(
         smiles_array=args.smiles_array,
         targets_array=args.targets_array,
-        args=args,
-        logger=logger,
         skip_none_targets=True
     )
     validate_dataset_type(data, dataset_type=args.dataset_type)
